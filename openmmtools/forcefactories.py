@@ -101,6 +101,8 @@ def restrain_atoms_by_dsl(thermodynamic_state, sampler_state, topology, atoms_ds
     restrained_atoms = mdtraj_topology.select(atoms_dsl).tolist()
     restrain_atoms(thermodynamic_state, sampler_state, restrained_atoms, **kwargs)
 
+    reutrn system
+    
 
 def restrain_atoms(thermodynamic_state, sampler_state, restrained_atoms, sigma=3.0*unit.angstroms):
     """Apply a soft harmonic restraint to the given atoms.
@@ -177,6 +179,8 @@ def restrain_atoms(thermodynamic_state, sampler_state, restrained_atoms, sigma=3
     system.addForce(restraint_force)
     thermodynamic_state.system = system
 
+    return system
+    
 
 if __name__ == '__main__':
     import doctest
