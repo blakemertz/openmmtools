@@ -1,6 +1,67 @@
 Release History
 ***************
 
+0.26.0
+======
+
+This release removes the barostat force during system minimization and fixes various warnings.
+
+- Fix AST deprecation warning & support pyyaml when built without c extensions PR `#800 <https://github.com/choderalab/openmmtools/pull/800>`_
+- Remove the barostat force from the system during minimization PR `#798 <https://github.com/choderalab/openmmtools/pull/798>`_. Minimization is now explicitly made without any barostats, before these changes it only worked for the ``MonteCarloBarostat``.
+
+
+0.25.3
+======
+
+This release removes a numpy function deprecated in ``numpy 2.3``.
+
+- Switch deprecated ``tostring`` numpy calls to ``tobytes``. PR `#793 <https://github.com/choderalab/openmmtools/pull/793>`_
+
+0.25.2
+======
+This release fixes a bug caused by the use of an incorrect API from the warnings module. The issue could trigger errors when retrying simulations that had previously resulted in temporary NaNs.
+
+- Revert to using ``warnings.warn``. PR `#790 <https://github.com/choderalab/openmmtools/pull/790>`_
+
+0.25.1
+======
+
+This release fixes a bug where ``get_entropy()`` and ``get_enthalpy() `` would return an ``AttributeError`` when using ``pymbar4``.
+See `#757 <https://github.com/choderalab/openmmtools/issues/757>`_ for more details.
+This release fixes deprecation warnings for ``pkg_resources`` and ``warnings.warn``.
+Replaced ``scipy.integrate.quadrature`` with ``scipy.integrate.quad`` to enable ``scipy >= 1.15.0`` support.
+See `#788 <https://github.com/choderalab/openmmtools/pull/788>`_ for more details.
+
+0.25.0
+======
+
+This release removes the requirement that the ``online_analysis_interval`` is a multiple of ``checkpoint_interval``. See `#799 <https://github.com/choderalab/openmmtools/pull/779>`_ for more details.
+
+Enhancements
+------------
+
+- Removes the requirement that the ``online_analysis_interval`` is a multiple of ``checkpoint_interval`` 
+  - Issue a logger warning rather than raise a ``ValueError``
+  - Note that the real time analysis output file may contain redundant information after restoring from checkpoints that would result in the repeated calculation of a specific iteration index
+  - See `#799 <https://github.com/choderalab/openmmtools/pull/779>`_ for more details
+
+0.24.2 - Numpy 2 support and FIRE minimization improvements
+===========================================================
+
+This release enables numpy 2 support and makes the FIRE minimization more stable by disabling the barostat during the minimization.
+
+Enhancements
+------------
+
+- Add AWS Tags (`#766 <https://github.com/choderalab/openmmtools/pull/766>`_) by @mikemhenry
+- chore: migrate to new OMSF start/stop runners (`#775 <https://github.com/choderalab/openmmtools/pull/775>`_) by @ethanholz
+- Disable the barostat during FIRE minimization (`#773 <https://github.com/choderalab/openmmtools/pull/773>`_) by @hannahbaumann
+
+Bug Fixes
+---------
+
+- Fixes for numpy 2.0 (ruff NPY201) (`#777 <https://github.com/choderalab/openmmtools/pull/777>`_) by @IAlibay
+
 0.24.1 - Differential storage of positions and velocities
 =========================================================
 

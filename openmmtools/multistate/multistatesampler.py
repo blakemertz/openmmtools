@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 
 
-class MultiStateSampler(object):
+class MultiStateSampler:
     """
     Base class for samplers that sample multiple thermodynamic states using
     one or more replicas.
@@ -197,7 +197,7 @@ class MultiStateSampler(object):
                  locality=None):
 
         # Warn that API is experimental
-        logger.warn('Warning: The openmmtools.multistate API is experimental and may change in future releases')
+        logger.warning('Warning: The openmmtools.multistate API is experimental and may change in future releases')
 
         # Display cuda device in debug log
         self._display_cuda_devices()
@@ -299,11 +299,10 @@ class MultiStateSampler(object):
         return sampler
 
     # TODO use Python 3.6 namedtuple syntax when we drop Python 3.5 support.
-    Status = typing.NamedTuple('Status', [
-        ('iteration', int),
-        ('target_error', float),
-        ('is_completed', bool)
-    ])
+    class Status(typing.NamedTuple):
+        iteration: int
+        target_error: float
+        is_completed: bool
 
     @classmethod
     def read_status(cls, storage):
@@ -436,7 +435,7 @@ class MultiStateSampler(object):
             return None
         return self._thermodynamic_states[0].is_periodic
 
-    class _StoredProperty(object):
+    class _StoredProperty:
         """
         Descriptor of a property stored as an option.
 
@@ -590,13 +589,9 @@ class MultiStateSampler(object):
             raise RuntimeError('Storage file {} already exists; cowardly '
                                'refusing to overwrite.'.format(self._reporter.filepath))
 
-        # Make sure online analysis interval is a multiples of the reporter's checkpoint interval
-        # this avoids having redundant iteration information in the real time yaml files
-        # only check if self.online_analysis_interval is set
         if self.online_analysis_interval:
             if self.online_analysis_interval % self._reporter.checkpoint_interval != 0:
-                raise ValueError(f"Online analysis interval: {self.online_analysis_interval}, must be a "
-                                 f"multiple of the checkpoint interval: {self._reporter.checkpoint_interval}")
+                logger.warning("An online_analysis_interval that is not a multiple of the checkpoint_interval can lead to redundant information in the real time yaml file after recovering from checkpoints.")
 
         # Make sure sampler_states is an iterable of SamplerStates.
         if isinstance(sampler_states, states.SamplerState):
@@ -688,7 +683,7 @@ class MultiStateSampler(object):
         production_mcmc_moves = self._mcmc_moves
         self._mcmc_moves = mcmc_moves
         for iteration in range(1, 1 + n_iterations):
-            logger.info("Equilibration iteration {}/{}".format(iteration, n_iterations))
+            logger.info(f"Equilibration iteration {iteration}/{n_iterations}")
             timer.start('Equilibration Iteration')
 
             # NOTE: Unlike run(), do NOT increment iteration counter.
@@ -712,7 +707,7 @@ class MultiStateSampler(object):
             estimated_finish_time = time.time() + estimated_time_remaining
             # TODO: Transmit timing information
 
-            logger.info("Iteration took {:.3f}s.".format(iteration_time))
+            logger.info(f"Iteration took {iteration_time:.3f}s.")
             if estimated_time_remaining != float('inf'):
                 logger.info("Estimated completion (of equilibration only) in {}, at {} (consuming total wall clock time {}).".format(
                     str(datetime.timedelta(seconds=estimated_time_remaining)),
@@ -773,7 +768,7 @@ class MultiStateSampler(object):
             self._iteration += 1
 
             logger.info('*' * 80)
-            logger.info('Iteration {}/{}'.format(self._iteration, iteration_limit))
+            logger.info(f'Iteration {self._iteration}/{iteration_limit}')
             logger.info('*' * 80)
             timer.start('Iteration')
 
@@ -827,7 +822,7 @@ class MultiStateSampler(object):
 
     def __repr__(self):
         """Return a 'formal' representation that can be used to reconstruct the class, if possible."""
-        return "<instance of {}>".format(self.__class__.__name__)
+        return f"<instance of {self.__class__.__name__}>"
 
     def __del__(self):
         # The reporter could be None if MultiStateSampler was not created.
@@ -980,7 +975,7 @@ class MultiStateSampler(object):
         """
         # Read the last iteration reported to ensure we don't include junk
         # data written just before a crash.
-        logger.debug("Reading storage file {}...".format(reporter.filepath))
+        logger.debug(f"Reading storage file {reporter.filepath}...")
         metadata = reporter.read_dict('metadata')
         thermodynamic_states, unsampled_states = reporter.read_thermodynamic_states()
 
@@ -1078,7 +1073,7 @@ class MultiStateSampler(object):
         # Raise exception if we have found some NaN energies.
         if len(nan_replicas) > 0:
             # Log failed replica, its thermo state, and the energy matrix row.
-            err_msg = "NaN encountered in {} energies for the following replicas and states".format(state_type)
+            err_msg = f"NaN encountered in {state_type} energies for the following replicas and states"
             for replica_id, energy_row in nan_replicas:
                 err_msg += '\n\tEnergies for positions at replica {} (current state {}): {} kT'.format(
                     replica_id, self._replica_thermodynamic_states[replica_id], energy_row)
@@ -1360,13 +1355,43 @@ class MultiStateSampler(object):
         # Retrieve thermodynamic and sampler states.
         thermodynamic_state_id = self._replica_thermodynamic_states[replica_id]
         thermodynamic_state = self._thermodynamic_states[thermodynamic_state_id]
-        sampler_state = self._sampler_states[replica_id]
 
+        sampler_state = self._sampler_states[replica_id]
+        
+        # Determine whether we need a temporary NVT state
+        barostat_types = (
+            openmm.MonteCarloBarostat,
+            openmm.MonteCarloMembraneBarostat,
+            openmm.MonteCarloAnisotropicBarostat,
+        )
+
+        has_barostat = any(
+            isinstance(thermodynamic_state.system.getForce(i), barostat_types)
+            for i in range(thermodynamic_state.system.getNumForces())
+        )
+
+        if has_barostat:
+            # Deep copy system and remove all barostats
+            min_system = copy.deepcopy(thermodynamic_state.system)
+            for i in reversed(range(min_system.getNumForces())):
+                if isinstance(min_system.getForce(i), barostat_types):
+                    min_system.removeForce(i)
+
+            # Temporary NVT ThermodynamicState for minimization
+            minimization_state = states.ThermodynamicState(
+                system=min_system,
+                temperature=thermodynamic_state.temperature,
+                pressure=None
+            )
+        else:
+            # Use original state if no barostat
+            minimization_state = thermodynamic_state
+ 
         # Use the FIRE minimizer
         integrator = FIREMinimizationIntegrator(tolerance=tolerance)
 
         # Get context and bound integrator from energy_context_cache
-        context, integrator = self.energy_context_cache.get_context(thermodynamic_state, integrator)
+        context, integrator = self.energy_context_cache.get_context(minimization_state, integrator)
         # inform of platform used in current context
         logger.debug(f"{type(integrator).__name__}: Minimize using {context.getPlatform().getName()} platform.")
 
@@ -1374,18 +1399,17 @@ class MultiStateSampler(object):
         sampler_state.apply_to_context(context)
 
         # Compute the initial energy of the system for logging.
-        initial_energy = thermodynamic_state.reduced_potential(context)
+        initial_energy = minimization_state.reduced_potential(context)
         logger.debug('Replica {}/{}: initial energy {:8.3f}kT'.format(
             replica_id + 1, self.n_replicas, initial_energy))
-
         # Minimize energy.
         try:
             if max_iterations == 0:
-                logger.debug('Using FIRE: tolerance {} minimizing to convergence'.format(tolerance))
+                logger.debug(f'Using FIRE: tolerance {tolerance} minimizing to convergence')
                 while integrator.getGlobalVariableByName('converged') < 1:
                     integrator.step(50)
             else:
-                logger.debug('Using FIRE: tolerance {} max_iterations {}'.format(tolerance, max_iterations))
+                logger.debug(f'Using FIRE: tolerance {tolerance} max_iterations {max_iterations}')
                 integrator.step(max_iterations)
         except Exception as e:
             if 'particle coordinate is nan' in str(e).lower():
@@ -1397,16 +1421,15 @@ class MultiStateSampler(object):
 
         # Get the minimized positions.
         sampler_state.update_from_context(context)
-
+        
         # Compute the final energy of the system for logging.
-        final_energy = thermodynamic_state.reduced_potential(sampler_state)
+        final_energy = minimization_state.reduced_potential(sampler_state)
         logger.debug('Replica {}/{}: final energy {:8.3f}kT'.format(
             replica_id + 1, self.n_replicas, final_energy))
         # TODO if energy > 0, use slower openmm minimizer
 
         # Clean up the integrator
         del context
-
         # Return minimized positions.
         return sampler_state.positions
 
@@ -1633,7 +1656,7 @@ class MultiStateSampler(object):
 
         self._last_mbar_f_k = -logZ
         free_energy = self._last_mbar_f_k[-1] - self._last_mbar_f_k[0]
-        self._last_err_free_energy = np.Inf
+        self._last_err_free_energy = np.inf
 
         # Store free energy estimate
         self._reporter.write_online_data_dynamic_and_static(self._iteration,
